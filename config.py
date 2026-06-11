@@ -72,6 +72,8 @@ PAPER_TRADE         = True     # Set False only when ready for live
 # Set FLIP_SIGNALS = False to revert to original logic instantly.
 FLIP_SIGNALS        = True     # ← master flip switch
 FLIP_SL_RS          = 900      # Rs fixed SL in flip mode (hard stop per trade)
+FLIP_TARGET_RR      = 1.5      # Target = 1.5× the SL amount (₹1350 target vs ₹900 SL)
+                                # Needs only 40% WR to break even (current WR is 43–46%)
 
 # ── Kotak Neo Credentials (from .env) ─────────────────────
 KOTAK_CONSUMER_KEY    = os.getenv("KOTAK_CONSUMER_KEY",    "")
@@ -139,12 +141,20 @@ TARGET_PCT           = 3.0       # Hard target 3% (raised from 2.5%)
 # For GAP_REVERSAL specifically — SL is placed just above VWAP at entry
 # (tighter, because VWAP is the thesis — if price goes back above VWAP
 #  after a SHORT reversal, the trade is wrong)
-GAP_REVERSAL_SL_BUFFER = 0.5    # Place SL 0.5% beyond VWAP level at entry
+GAP_REVERSAL_SL_BUFFER = 0.3    # FIX: Tightened from 0.5% → 0.3% beyond VWAP.
+                                # Avg SL loss was ₹936 vs avg win ₹855 (ratio 0.91x —
+                                # structurally negative). Tighter SL brings avg loss to
+                                # ~₹560, making avg win > avg loss at same 43% WR.
+                                # Monitor: if SL hit rate jumps above 55% in first week,
+                                # move back to 0.4%.
 
 # ── Timing Guards ─────────────────────────────────────────
 MARKET_OPEN          = "09:15"
 ENTRY_START          = "09:30"
-SQUARE_OFF_TIME      = "15:10"
+SQUARE_OFF_TIME      = "14:30"  # FIX: Moved from 15:10 → 14:30.
+                                # EOD square-off was net negative across both algos.
+                                # Positions open past 2:30 PM with no clear direction
+                                # are statistically net negative on gap stocks.
 
 # ── VWAP Data Strategy ────────────────────────────────────
 # PRIMARY:   Exchange 'ap' field on WS ticks (most accurate)

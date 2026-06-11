@@ -589,46 +589,35 @@ class TradeManager:
             )
 
             # ── FLIP MODE: override SL and target ───────────────────
-            # Original SL (the level the original signal would have used)
-            # becomes our profit target.
-            # A fixed Rs amount (FLIP_SL_RS) is our new hard stop.
+            # FIX (v4): Use symmetric ₹ target instead of VWAP anchor.
+            #
+            # OLD approach (BROKEN): target = original SL level (VWAP ± buffer).
+            # This failed because 91% of trades have entry already past VWAP,
+            # making the VWAP-anchor target unreachable or near-zero distance.
+            # Result: Trade.__init__'s default 3% target was used instead,
+            # which gap stocks almost never reach → only 4% target hit rate.
+            #
+            # NEW approach: target = entry ± (FLIP_SL_RS × FLIP_TARGET_RR / qty)
+            # If we risk ₹900 on the SL side, we target ₹1350 on the profit side
+            # (FLIP_TARGET_RR = 1.5). This gives a ~0.9% target on ₹1L exposure —
+            # well within normal intraday moves and matches avg VWAP distance.
+            # With 1.5× R:R, breakeven WR = 40% (current WR = 43–46% → positive EV).
             if flip_mode:
-                flip_sl_rs = getattr(config, "FLIP_SL_RS", 900)
-                sl_per_share = flip_sl_rs / max(trade.qty, 1)
+                flip_sl_rs  = getattr(config, "FLIP_SL_RS",     900)
+                flip_rr     = getattr(config, "FLIP_TARGET_RR", 1.5)
+                sl_per_share  = flip_sl_rs / max(trade.qty, 1)
+                tgt_per_share = sl_per_share * flip_rr
                 if direction == "LONG":
-                    # We're now long — stop if price falls below entry - sl_per_share
-                    trade.sl_price     = round(entry_price - sl_per_share, 2)
-                    # Target = the original SL level (which was below entry for a SHORT)
-                    # trade.sl_price was calculated by Trade.__init__ as the ORIGINAL SL
-                    # We need the original SHORT sl_price as our LONG target.
-                    # Original SHORT sl_price = entry_vwap + buffer (for GAP_REVERSAL)
-                    # That is exactly what Trade.__init__ computed before we patch it.
-                    # To get it cleanly: reconstruct using same formula.
-                    vwap_buf = vwap * (getattr(config, "GAP_REVERSAL_SL_BUFFER", 0.2) / 100)
-                    is_trend = signal_type in ("VWAP_TREND_LONG", "VWAP_TREND_SHORT",
-                                               "GAP_REVERSAL", "VWAP_BREAKOUT")
-                    if is_trend:
-                        original_short_sl = round(vwap + vwap_buf, 2)
-                    else:
-                        sl_off = entry_price * (config.SL_PCT / 100.0)
-                        original_short_sl = round(entry_price + sl_off, 2)
-                    trade.target_price = original_short_sl
+                    trade.sl_price     = round(entry_price - sl_per_share,  2)
+                    trade.target_price = round(entry_price + tgt_per_share, 2)
                 else:
-                    # We're now short — stop if price rises above entry + sl_per_share
-                    trade.sl_price     = round(entry_price + sl_per_share, 2)
-                    vwap_buf = vwap * (getattr(config, "GAP_REVERSAL_SL_BUFFER", 0.2) / 100)
-                    is_trend = signal_type in ("VWAP_TREND_LONG", "VWAP_TREND_SHORT",
-                                               "GAP_REVERSAL", "VWAP_BREAKOUT")
-                    if is_trend:
-                        original_long_sl = round(vwap - vwap_buf, 2)
-                    else:
-                        sl_off = entry_price * (config.SL_PCT / 100.0)
-                        original_long_sl = round(entry_price - sl_off, 2)
-                    trade.target_price = original_long_sl
+                    trade.sl_price     = round(entry_price + sl_per_share,  2)
+                    trade.target_price = round(entry_price - tgt_per_share, 2)
                 logger.info(f"[FLIP] {symbol} {direction}  "
                             f"new_sl=₹{trade.sl_price:.2f}  "
                             f"new_target=₹{trade.target_price:.2f}  "
-                            f"(original SL used as target)")
+                            f"risk=₹{flip_sl_rs}  reward=₹{flip_sl_rs*flip_rr:.0f}  "
+                            f"rr={flip_rr}x")
             # ────────────────────────────────────────────────────────
 
             self._open[symbol] = trade
